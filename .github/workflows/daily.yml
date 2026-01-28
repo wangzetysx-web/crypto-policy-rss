@@ -1,0 +1,142 @@
+name: 加密政策 RSS 每日推送
+
+on:
+  # 北京时间早上 8:00 = UTC 0:00
+  schedule:
+    - cron: '0 0 * * *'
+
+  # 手动触发，支持 dry-run 模式
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run 模式（只打印不发送）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      log_level:
+        description: '日志级别'
+        required: false
+        default: 'INFO'
+        type: choice
+        options:
+          - 'DEBUG'
+          - 'INFO'
+          - 'WARNING'
+      force_run:
+        description: '强制运行（忽略状态文件）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
+  # 可选：翻译 API
+  TRANSLATE_API: ${{ secrets.TRANSLATE_API }}
+  DEEPL_API_KEY: ${{ secrets.DEEPL_API_KEY }}
+
+jobs:
+  fetch-and-send:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: |
+          pip install -r requirements.txt
+
+      - name: 下载状态文件
+        uses: actions/cache@v4
+        with:
+          path: state.json
+          key: rss-state-${{ github.run_id }}
+          restore-keys: |
+            rss-state-
+
+      - name: 运行 RSS 聚合器
+        id: run_script
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          LOG_LEVEL: ${{ github.event.inputs.log_level || 'INFO' }}
+        run: |
+          echo "🚀 开始运行..."
+          echo "DRY_RUN: $DRY_RUN"
+          echo "LOG_LEVEL: $LOG_LEVEL"
+          echo "时间: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S') 北京时间"
+          echo ""
+
+          # 强制运行时删除状态文件
+          if [ "${{ github.event.inputs.force_run }}" = "true" ]; then
+            echo "⚠️ 强制运行模式：清除状态文件"
+            rm -f state.json
+          fi
+
+          python main.py 2>&1 | tee run_output.log
+
+          # 检查退出码
+          exit_code=${PIPESTATUS[0]}
+          if [ $exit_code -ne 0 ]; then
+            echo "❌ 脚本执行失败，退出码: $exit_code"
+            exit $exit_code
+          fi
+
+          echo "✅ 执行成功"
+
+      - name: 上传日志（失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-logs-${{ github.run_id }}
+          path: |
+            run_output.log
+            state.json
+          retention-days: 7
+
+      - name: 提交状态文件
+        if: success() && github.event.inputs.dry_run != 'true'
+        run: |
+          if [ -f state.json ]; then
+            # 检查是否有变化
+            git diff --quiet state.json 2>/dev/null || {
+              git config --local user.email "github-actions[bot]@users.noreply.github.com"
+              git config --local user.name "github-actions[bot]"
+              git add state.json
+              git commit -m "chore: 更新 RSS 状态 [skip ci]
+
+              运行时间: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S') 北京时间
+              触发方式: ${{ github.event_name }}"
+              git push
+              echo "✅ 状态文件已提交"
+            }
+          fi
+
+      - name: 输出运行摘要
+        if: always()
+        run: |
+          echo "## 📊 运行摘要" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **触发方式**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **运行时间**: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S') 北京时间" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry-run**: ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **状态**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f run_output.log ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📝 运行日志（最后 30 行）" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -30 run_output.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi

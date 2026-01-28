@@ -1,0 +1,82 @@
+{
+  "feeds": [
+    {
+      "name": "CoinDesk",
+      "full_name": "CoinDesk",
+      "url": "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml",
+      "tags": ["news", "crypto", "industry"],
+      "enabled": true
+    },
+    {
+      "name": "TheBlock",
+      "full_name": "The Block",
+      "url": "https://www.theblock.co/rss.xml",
+      "tags": ["news", "research", "crypto"],
+      "enabled": true
+    },
+    {
+      "name": "Cointelegraph",
+      "full_name": "Cointelegraph",
+      "url": "https://cointelegraph.com/rss",
+      "tags": ["news", "crypto", "industry"],
+      "enabled": true
+    },
+    {
+      "name": "Decrypt",
+      "full_name": "Decrypt",
+      "url": "https://decrypt.co/feed",
+      "tags": ["news", "crypto", "web3"],
+      "enabled": true
+    },
+    {
+      "name": "CryptoSlate",
+      "full_name": "CryptoSlate",
+      "url": "https://cryptoslate.com/feed/",
+      "tags": ["news", "crypto", "analysis"],
+      "enabled": true
+    },
+    {
+      "name": "Cardano-Forum",
+      "full_name": "Cardano Forum",
+      "url": "https://forum.cardano.org/latest.rss",
+      "tags": ["cardano", "ada", "community"],
+      "enabled": true
+    },
+    {
+      "name": "CardanoSpot",
+      "full_name": "Cardano Spot News",
+      "url": "https://cardanospot.io/feed",
+      "tags": ["cardano", "ada", "news"],
+      "enabled": true
+    },
+    {
+      "name": "U.Today",
+      "full_name": "U.Today Crypto",
+      "url": "https://u.today/rss",
+      "tags": ["news", "crypto", "altcoin"],
+      "enabled": true
+    },
+    {
+      "name": "NewsBTC",
+      "full_name": "NewsBTC",
+      "url": "https://www.newsbtc.com/feed/",
+      "tags": ["news", "bitcoin", "analysis"],
+      "enabled": true
+    },
+    {
+      "name": "BeInCrypto",
+      "full_name": "BeInCrypto",
+      "url": "https://beincrypto.com/feed/",
+      "tags": ["news", "crypto", "altcoin"],
+      "enabled": true
+    },
+    {
+      "name": "SEC",
+      "full_name": "U.S. SEC",
+      "url": "https://www.sec.gov/news/pressreleases.rss",
+      "tags": ["regulation", "us", "sec"],
+      "enabled": true,
+      "note": "监管动态"
+    }
+  ]
+}

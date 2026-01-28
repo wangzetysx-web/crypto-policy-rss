@@ -1,0 +1,67 @@
+{
+  "keywords": {
+    "allow": [
+      "crypto",
+      "cryptocurrency",
+      "bitcoin",
+      "btc",
+      "ethereum",
+      "eth",
+      "cardano",
+      "ada",
+      "solana",
+      "sol",
+      "xrp",
+      "ripple",
+      "stablecoin",
+      "usdt",
+      "usdc",
+      "defi",
+      "decentralized finance",
+      "token",
+      "altcoin",
+      "web3",
+      "nft",
+      "mining",
+      "exchange",
+      "binance",
+      "coinbase",
+      "etf",
+      "bull",
+      "bear",
+      "halving",
+      "whale",
+      "pump",
+      "rally",
+      "breakout",
+      "correction",
+      "regulation",
+      "sec",
+      "institutional",
+      "adoption"
+    ],
+    "deny": [
+      "job posting",
+      "career",
+      "vacancy",
+      "recruitment",
+      "internship",
+      "sponsored"
+    ]
+  },
+  "settings": {
+    "http_timeout_seconds": 30,
+    "max_entries_per_feed": 10,
+    "state_retention_days": 7,
+    "max_retries": 3,
+    "retry_backoff_base": 2,
+    "message_batch_size": 5,
+    "message_delay_seconds": 1,
+    "summary_max_length": 150
+  },
+  "tags_filter": {
+    "enabled": false,
+    "include_tags": [],
+    "exclude_tags": []
+  }
+}
