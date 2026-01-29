@@ -43,6 +43,8 @@ env:
 jobs:
   fetch-and-send:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: 检出代码
