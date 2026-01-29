@@ -1,11 +1,12 @@
 name: 加密政策 RSS 每日推送
 
 on:
-  # 北京时间早上 8:00 = UTC 0:00
-  schedule:
-    - cron: '0 0 * * *'
+  # 已改用外部 cron 服务触发，避免 GitHub Actions schedule 延迟问题
+  # GitHub Actions 的 schedule 在高峰期可能延迟数小时（见 2026-01-29 延迟 5 小时的情况）
+  # schedule:
+  #   - cron: '0 0 * * *'
 
-  # 手动触发，支持 dry-run 模式
+  # 手动触发和外部 API 触发（通过 cron-job.org 每天北京时间 8:00 准时触发）
   workflow_dispatch:
     inputs:
       dry_run:
