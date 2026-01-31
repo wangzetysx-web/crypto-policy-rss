@@ -23,6 +23,8 @@ import feedparser
 import requests
 from dateutil import parser as date_parser
 import translators as ts
+import trafilatura
+from openai import OpenAI
 
 # ============== 配置 ==============
 
@@ -35,6 +37,7 @@ STATE_FILE = BASE_DIR / "state.json"
 WECOM_WEBHOOK_URL = os.getenv("WECOM_WEBHOOK_URL", "")  # 企业微信 Webhook
 DRY_RUN = os.getenv("DRY_RUN", "").lower() in ("1", "true", "yes")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # DeepSeek API 密钥
 
 # ============== 日志配置 ==============
 
@@ -70,6 +73,8 @@ class FeedEntry:
     source: str
     source_full: str
     tags: list[str] = field(default_factory=list)
+    popularity_score: float = 0.0
+    smart_summary: Optional[dict] = None  # LLM生成的结构化摘要
 
 
 @dataclass
@@ -88,6 +93,10 @@ class AppConfig:
     tags_filter_enabled: bool = False
     tags_include: list[str] = field(default_factory=list)
     tags_exclude: list[str] = field(default_factory=list)
+    # 智能摘要配置
+    smart_summary_enabled: bool = True
+    smart_summary_score_threshold: int = 70
+    smart_summary_max_content_length: int = 4000
 
 
 # ============== 简易中英翻译 ==============
@@ -172,6 +181,9 @@ TRANSLATION_DICT = {
     "assessment": "评估",
 }
 
+# 预排序翻译词典（按长度降序，优先匹配长词组）
+SORTED_TRANSLATION_TERMS = sorted(TRANSLATION_DICT.keys(), key=len, reverse=True)
+
 
 def translate_text(text: str) -> str:
     """
@@ -182,10 +194,8 @@ def translate_text(text: str) -> str:
         return ""
 
     result = text
-    # 按长度降序排列，优先匹配长词组
-    sorted_terms = sorted(TRANSLATION_DICT.keys(), key=len, reverse=True)
-
-    for en_term in sorted_terms:
+    # 使用预排序列表（模块加载时已排序）
+    for en_term in SORTED_TRANSLATION_TERMS:
         zh_term = TRANSLATION_DICT[en_term]
         # 不区分大小写替换
         pattern = re.compile(re.escape(en_term), re.IGNORECASE)
@@ -202,9 +212,14 @@ def translate_to_chinese(text: str) -> str:
     if not text or not text.strip():
         return ""
 
-    # 检查是否已经是中文为主的内容
-    chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
-    if chinese_chars > len(text) * 0.3:  # 超过30%是中文，不翻译
+    # 检查是否需要翻译：只有英文字母占比足够高才翻译
+    # 统计英文字母数量（不含数字、空格、标点）
+    english_chars = len(re.findall(r'[a-zA-Z]', text))
+    total_chars = len(text.strip())
+    if total_chars == 0:
+        return text
+    # 英文字母占比低于40%，说明已是中文为主，不翻译
+    if english_chars / total_chars < 0.4:
         return text
 
     # 截断过长文本
@@ -281,8 +296,15 @@ def load_feeds() -> list[FeedSource]:
         logger.error(f"RSS 源配置文件不存在: {FEEDS_FILE}")
         return []
 
-    with open(FEEDS_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        with open(FEEDS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        logger.error(f"RSS 源配置文件格式错误: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"读取 RSS 源配置文件失败: {e}")
+        return []
 
     feeds = []
     for item in data.get("feeds", []):
@@ -304,8 +326,17 @@ def load_config() -> AppConfig:
     config = AppConfig()
 
     if CONFIG_FILE.exists():
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error(f"配置文件格式错误: {e}，使用默认配置")
+            data = {}
+        except Exception as e:
+            logger.error(f"读取配置文件失败: {e}，使用默认配置")
+            data = {}
+    else:
+        data = {}
 
         keywords = data.get("keywords", {})
         config.keywords_allow = keywords.get("allow", [])
@@ -326,13 +357,29 @@ def load_config() -> AppConfig:
         config.tags_include = tags_filter.get("include_tags", [])
         config.tags_exclude = tags_filter.get("exclude_tags", [])
 
-    # 环境变量覆盖
-    if os.getenv("HTTP_TIMEOUT"):
-        config.http_timeout = int(os.getenv("HTTP_TIMEOUT"))
-    if os.getenv("MAX_ENTRIES_PER_FEED"):
-        config.max_entries_per_feed = int(os.getenv("MAX_ENTRIES_PER_FEED"))
-    if os.getenv("STATE_RETENTION_DAYS"):
-        config.state_retention_days = int(os.getenv("STATE_RETENTION_DAYS"))
+        # 智能摘要配置
+        smart_summary = data.get("smart_summary", {})
+        config.smart_summary_enabled = smart_summary.get("enabled", True)
+        config.smart_summary_score_threshold = smart_summary.get("score_threshold", 70)
+        config.smart_summary_max_content_length = smart_summary.get("max_content_length", 4000)
+
+    # 环境变量覆盖（带类型转换错误处理）
+    def safe_int_env(name: str, default: int) -> int:
+        val = os.getenv(name)
+        if val:
+            try:
+                return int(val)
+            except ValueError:
+                logger.warning(f"环境变量 {name}={val} 不是有效整数，使用默认值 {default}")
+        return default
+
+    config.http_timeout = safe_int_env("HTTP_TIMEOUT", config.http_timeout)
+    config.max_entries_per_feed = safe_int_env("MAX_ENTRIES_PER_FEED", config.max_entries_per_feed)
+    config.state_retention_days = safe_int_env("STATE_RETENTION_DAYS", config.state_retention_days)
+
+    # 智能摘要环境变量覆盖
+    if os.getenv("SMART_SUMMARY_ENABLED"):
+        config.smart_summary_enabled = os.getenv("SMART_SUMMARY_ENABLED", "").lower() in ("1", "true", "yes")
 
     logger.info(f"配置已加载: 允许关键词 {len(config.keywords_allow)} 个，"
                 f"拒绝关键词 {len(config.keywords_deny)} 个")
@@ -346,16 +393,39 @@ def load_state() -> dict[str, Any]:
     if not STATE_FILE.exists():
         return {"sent_ids": {}, "last_run": None}
 
-    with open(STATE_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            state = json.load(f)
+            # 确保必要字段存在
+            if "sent_ids" not in state:
+                state["sent_ids"] = {}
+            return state
+    except json.JSONDecodeError as e:
+        logger.error(f"状态文件格式错误: {e}，重新初始化")
+        return {"sent_ids": {}, "last_run": None}
+    except Exception as e:
+        logger.error(f"读取状态文件失败: {e}，重新初始化")
+        return {"sent_ids": {}, "last_run": None}
 
 
 def save_state(state: dict[str, Any]) -> None:
-    """保存状态文件"""
+    """保存状态文件（原子写入，避免写入中断导致文件损坏）"""
     state["last_run"] = datetime.now(timezone.utc).isoformat()
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-    logger.info("状态已保存")
+
+    # 先写入临时文件，再原子性重命名
+    temp_file = STATE_FILE.with_suffix(".tmp")
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        # 原子性重命名（同一文件系统内是原子操作）
+        temp_file.replace(STATE_FILE)
+        logger.info("状态已保存")
+    except Exception as e:
+        logger.error(f"保存状态失败: {e}")
+        # 清理临时文件
+        if temp_file.exists():
+            temp_file.unlink()
+        raise
 
 
 def cleanup_state(state: dict[str, Any], retention_days: int) -> dict[str, Any]:
@@ -458,9 +528,179 @@ def extract_summary(entry: dict, max_length: int = 200) -> str:
 
 
 def matches_keywords(text: str, keywords: list[str]) -> bool:
-    """检查文本是否匹配关键词"""
+    """检查文本是否匹配关键词（使用词边界避免子串误匹配）"""
     text_lower = text.lower()
-    return any(kw.lower() in text_lower for kw in keywords)
+    for kw in keywords:
+        # 使用词边界 \b 避免子串误匹配（如 "etf" 不会匹配 "platform"）
+        pattern = r'\b' + re.escape(kw.lower()) + r'\b'
+        if re.search(pattern, text_lower):
+            return True
+    return False
+
+
+# ============== 网页内容抓取 ==============
+
+def fetch_article_content(url: str, max_length: int = 4000, timeout: int = 30) -> str:
+    """
+    抓取网页正文内容
+
+    Args:
+        url: 文章链接
+        max_length: 最大内容长度
+        timeout: 超时时间（秒）
+
+    Returns:
+        正文内容，失败返回空字符串
+    """
+    if not url:
+        return ""
+
+    try:
+        # 使用 trafilatura 抓取和提取正文
+        # 设置配置以控制超时
+        config = trafilatura.settings.use_config()
+        config.set("DEFAULT", "DOWNLOAD_TIMEOUT", str(timeout))
+        downloaded = trafilatura.fetch_url(url, config=config)
+        if not downloaded:
+            logger.warning(f"无法下载页面: {url}")
+            return ""
+
+        # 提取正文
+        content = trafilatura.extract(
+            downloaded,
+            include_comments=False,
+            include_tables=False,
+            no_fallback=False,
+        )
+
+        if not content:
+            logger.warning(f"无法提取正文: {url}")
+            return ""
+
+        # 截断过长内容
+        if len(content) > max_length:
+            content = content[:max_length]
+            # 尝试在句子边界截断
+            last_period = content.rfind(".")
+            if last_period > max_length * 0.8:
+                content = content[:last_period + 1]
+
+        logger.debug(f"成功抓取正文: {url} ({len(content)} 字符)")
+        return content
+
+    except Exception as e:
+        logger.warning(f"抓取正文失败 {url}: {e}")
+        return ""
+
+
+# ============== DeepSeek 智能摘要 ==============
+
+def generate_smart_summary(title: str, content: str) -> Optional[dict]:
+    """
+    使用 DeepSeek API 生成结构化摘要
+
+    Args:
+        title: 文章标题
+        content: 文章正文
+
+    Returns:
+        结构化摘要字典，失败返回 None
+        {
+            "core_point": "一句话核心（20字内）",
+            "key_data": ["关键数据1", "关键数据2"],
+            "impact": "影响评估（30字内）"
+        }
+    """
+    if not DEEPSEEK_API_KEY:
+        logger.warning("DEEPSEEK_API_KEY 未设置，跳过智能摘要")
+        return None
+
+    if not content:
+        logger.debug("正文为空，跳过智能摘要")
+        return None
+
+    try:
+        client = OpenAI(
+            api_key=DEEPSEEK_API_KEY,
+            base_url="https://api.deepseek.com"
+        )
+
+        prompt = f"""分析以下加密货币/金融新闻，提取关键信息。
+
+标题：{title}
+
+正文：
+{content[:3000]}
+
+请用中文回复，严格按以下JSON格式输出（不要添加其他内容）：
+{{
+    "core_point": "一句话概括核心内容（不超过20字）",
+    "key_data": ["关键数据点1", "关键数据点2"],
+    "impact": "对市场/行业的影响（不超过30字）"
+}}
+
+注意：
+- core_point 必须简洁有力，抓住新闻核心
+- key_data 提取具体数字、金额、时间、比例等数据，没有则返回空数组
+- impact 评估这条新闻的实际影响，偏利好/利空/中性"""
+
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "你是专业的加密货币新闻分析师，擅长提炼关键信息。"},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=500,
+        )
+
+        result_text = response.choices[0].message.content.strip()
+
+        # 尝试解析 JSON
+        # 处理可能的 markdown 代码块
+        if "```" in result_text:
+            # 提取代码块内容
+            parts = result_text.split("```")
+            for part in parts[1::2]:  # 取奇数索引（代码块内容）
+                part = part.strip()
+                if part.startswith("json"):
+                    part = part[4:].strip()
+                if part.startswith("{"):
+                    result_text = part
+                    break
+
+        # 如果还不是以 { 开头，尝试用正则提取 JSON 对象
+        if not result_text.strip().startswith("{"):
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', result_text, re.DOTALL)
+            if json_match:
+                result_text = json_match.group()
+
+        summary = json.loads(result_text.strip())
+
+        # 验证必要字段
+        if "core_point" not in summary:
+            logger.warning("智能摘要缺少 core_point 字段")
+            return None
+
+        # 确保 key_data 是列表
+        if "key_data" not in summary:
+            summary["key_data"] = []
+        elif not isinstance(summary["key_data"], list):
+            summary["key_data"] = [summary["key_data"]]
+
+        # 确保 impact 存在
+        if "impact" not in summary:
+            summary["impact"] = ""
+
+        logger.debug(f"智能摘要生成成功: {summary['core_point']}")
+        return summary
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"智能摘要 JSON 解析失败: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"智能摘要生成失败: {e}")
+        return None
 
 
 def filter_entry(
@@ -492,6 +732,113 @@ def filter_entry(
                 return False
 
     return True
+
+
+# ============== 热度评分系统 ==============
+
+# 来源权威性权重 (0-35分)
+SOURCE_WEIGHTS = {
+    "SEC": 35,
+    "CoinDesk": 30,
+    "TheBlock": 28,
+    "Cointelegraph": 26,
+    "Decrypt": 22,
+    "CryptoSlate": 20,
+    "CardanoSpot": 18,
+    "IOHK-Blog": 18,
+    "AdaPulse": 16,
+    "Cardano-Forum": 15,
+    "U.Today": 14,
+    "NewsBTC": 12,
+    "BeInCrypto": 12,
+}
+
+# 标题热词 (累计最高25分)
+HOT_KEYWORDS = {
+    "breaking": 10,
+    "surge": 5,
+    "crash": 5,
+    "etf": 6,
+    "approved": 7,
+    "sec": 5,
+    "regulation": 4,
+    "bitcoin": 3,
+    "ethereum": 3,
+    "ban": 5,
+    "hack": 5,
+    "lawsuit": 4,
+    "settlement": 4,
+    "partnership": 3,
+    "launch": 3,
+    "upgrade": 3,
+    "mainnet": 4,
+    "airdrop": 3,
+}
+
+# Cardano 关键词（用于加分）
+CARDANO_KEYWORDS = ["cardano", "ada", "iohk", "hoskinson", "plutus", "hydra", "midnight", "lace", "voltaire"]
+
+
+def calculate_popularity_score(entry: FeedEntry) -> float:
+    """
+    计算文章热度评分
+
+    评分维度：
+    1. 来源权威性 (0-35分)
+    2. 标题热词 (0-25分)
+    3. 时效性 (0-20分)
+    4. 内容质量启发 (0-15分)
+    5. Cardano 加分 (0-20分)
+
+    总分范围: 0-115分
+    """
+    score = 0.0
+
+    # 1. 来源权威性 (0-35分)
+    source_score = SOURCE_WEIGHTS.get(entry.source, 10)
+    score += source_score
+
+    # 2. 标题热词 (0-25分，累计)
+    title_lower = entry.title.lower()
+    keyword_score = 0
+    for keyword, points in HOT_KEYWORDS.items():
+        if keyword in title_lower:
+            keyword_score += points
+    score += min(keyword_score, 25)  # 上限25分
+
+    # 3. 时效性 (0-20分)
+    now = datetime.now(timezone.utc)
+    age_hours = (now - entry.published).total_seconds() / 3600
+    if age_hours <= 2:
+        score += 20
+    elif age_hours <= 6:
+        score += 15
+    elif age_hours <= 12:
+        score += 10
+    elif age_hours <= 24:
+        score += 5
+
+    # 4. 内容质量启发 (0-15分)
+    # 标题长度适中 (20-80字符) +5分
+    title_len = len(entry.title)
+    if 20 <= title_len <= 80:
+        score += 5
+    # 有摘要 +5分
+    if entry.summary and len(entry.summary) > 50:
+        score += 5
+    # 有链接 +5分
+    if entry.link:
+        score += 5
+
+    # 5. Cardano 加分 (0-30分，确保优先推送)
+    combined_text = f"{entry.title} {entry.summary}".lower()
+    if any(kw in combined_text for kw in CARDANO_KEYWORDS):
+        score += 20  # 关键词匹配
+    # 来自 Cardano 专用源 +10分
+    if any(tag in ["cardano", "ada"] for tag in entry.tags):
+        score += 10
+
+    return score
 
 
 def process_feed(
@@ -550,8 +897,23 @@ def process_feed(
 
 # ============== 企业微信发送 ==============
 
+def get_importance_level(score: float) -> tuple[str, str]:
+    """
+    根据热度评分获取重要度级别
+
+    Returns:
+        (emoji标签, 级别名称)
+    """
+    if score >= 70:
+        return "🔴", "必读"
+    elif score >= 50:
+        return "🟡", "重要"
+    else:
+        return "🟢", "参考"
+
+
 def format_wecom_markdown(entries: list[FeedEntry]) -> str:
-    """格式化企业微信 Markdown 消息（中文版）"""
+    """格式化企业微信 Markdown 消息（中文版，支持分级显示）"""
     # 北京时间
     beijing_tz = timezone(timedelta(hours=8))
     now_beijing = datetime.now(beijing_tz)
@@ -563,21 +925,43 @@ def format_wecom_markdown(entries: list[FeedEntry]) -> str:
     ]
 
     for i, entry in enumerate(entries, 1):
-        # 来源标签（绿色高亮）
-        source_tag = f"<font color=\"info\">[{entry.source}]</font>"
+        # 获取重要度级别
+        emoji, level = get_importance_level(entry.popularity_score)
 
-        # 标题（中文优先）
-        lines.append(f"**{i}. {source_tag} {entry.title_zh}**")
+        # 来源标签
+        source_tag = f"[{entry.source}]"
 
-        # 摘要（中文）
-        if entry.summary_zh:
-            summary_text = entry.summary_zh[:150]
-            if len(entry.summary_zh) > 150:
-                summary_text += "..."
-            lines.append(f"> {summary_text}")
+        # 标题行：重要度 + 来源 + 标题
+        lines.append(f"**{emoji} {level} | {source_tag} {entry.title_zh}**")
+
+        # 根据是否有智能摘要决定显示格式
+        if entry.smart_summary:
+            # 必读级别：显示结构化智能摘要
+            summary = entry.smart_summary
+
+            # 核心观点
+            lines.append(f"📌 核心：{summary.get('core_point', '')}")
+
+            # 关键数据
+            key_data = summary.get('key_data', [])
+            if key_data:
+                data_str = " | ".join(key_data[:3])  # 最多3个数据点
+                lines.append(f"📊 数据：{data_str}")
+
+            # 影响评估
+            impact = summary.get('impact', '')
+            if impact:
+                lines.append(f"⚡ 影响：{impact}")
+        else:
+            # 普通级别：显示RSS原摘要
+            if entry.summary_zh:
+                summary_text = entry.summary_zh[:150]
+                if len(entry.summary_zh) > 150:
+                    summary_text += "..."
+                lines.append(f"> {summary_text}")
 
         # 链接
-        lines.append(f"[👉 阅读原文]({entry.link})")
+        lines.append(f"[👉 原文]({entry.link})")
         lines.append("")
 
     # 标签
@@ -675,27 +1059,57 @@ def send_entries(
     sent_ids = []
 
     # 分批发送（企业微信单条消息限制 4096 字节）
+    MAX_MESSAGE_BYTES = 4000  # 留100字节余量
+
     for i in range(0, len(entries), batch_size):
         batch = entries[i:i + batch_size]
         message = format_wecom_markdown(batch)
 
         # 如果消息过长，尝试使用纯文本格式
-        if len(message.encode('utf-8')) > 4000:
-            logger.warning("消息过长，切换为纯文本格式")
+        if len(message.encode('utf-8')) > MAX_MESSAGE_BYTES:
+            logger.warning("Markdown消息过长，切换为纯文本格式")
             message = format_wecom_text(batch)
 
-        try:
-            send_wecom_message(message, WECOM_WEBHOOK_URL, "markdown")
-            sent_ids.extend(e.id for e in batch)
-            logger.info(f"已发送第 {i // batch_size + 1} 批 ({len(batch)} 条)")
+            # 纯文本仍超限，逐条拆分发送
+            if len(message.encode('utf-8')) > MAX_MESSAGE_BYTES:
+                logger.warning("纯文本仍超限，改为逐条发送")
+                # 将当前批次拆分为单条发送
+                for single_entry in batch:
+                    single_message = format_wecom_text([single_entry])
+                    # 单条仍超限则截断
+                    if len(single_message.encode('utf-8')) > MAX_MESSAGE_BYTES:
+                        single_message = single_message[:MAX_MESSAGE_BYTES].rsplit('\n', 1)[0]
+                    try:
+                        send_wecom_message(single_message, WECOM_WEBHOOK_URL, "text")
+                        sent_ids.append(single_entry.id)
+                        time.sleep(delay)
+                    except Exception as e:
+                        logger.error(f"单条发送失败 [{single_entry.source}] {single_entry.title[:30]}: {e}")
+                continue  # 跳过后续批次发送逻辑
 
-            # 批次间延迟（企业微信限制每分钟 20 条）
-            if i + batch_size < len(entries):
-                time.sleep(delay)
+        batch_num = i // batch_size + 1
+        max_batch_retries = 3
 
-        except Exception as e:
-            logger.error(f"发送失败: {e}")
-            # 继续尝试下一批
+        for retry in range(max_batch_retries):
+            try:
+                send_wecom_message(message, WECOM_WEBHOOK_URL, "markdown")
+                sent_ids.extend(e.id for e in batch)
+                logger.info(f"已发送第 {batch_num} 批 ({len(batch)} 条)")
+                break  # 发送成功，跳出重试循环
+            except Exception as e:
+                if retry < max_batch_retries - 1:
+                    wait_time = 2 ** (retry + 1)  # 指数退避：2, 4, 8 秒
+                    logger.warning(f"第 {batch_num} 批发送失败 (尝试 {retry + 1}/{max_batch_retries}): {e}，{wait_time}秒后重试...")
+                    time.sleep(wait_time)
+                else:
+                    # 最终失败，记录未发送的条目
+                    failed_titles = [e.title[:30] for e in batch]
+                    logger.error(f"第 {batch_num} 批最终发送失败: {e}")
+                    logger.error(f"未发送条目: {failed_titles}")
+
+        # 批次间延迟（企业微信限制每分钟 20 条）
+        if i + batch_size < len(entries):
+            time.sleep(delay)
 
     return sent_ids
 
@@ -734,10 +1148,64 @@ def main() -> int:
             # 单个源失败不影响其他源
             continue
 
-    # 按发布时间排序（最新的在前）
-    all_entries.sort(key=lambda e: e.published, reverse=True)
+    # 计算热度评分并排序
+    for entry in all_entries:
+        entry.popularity_score = calculate_popularity_score(entry)
+
+    # 按热度评分排序（同分按时间）
+    all_entries.sort(key=lambda e: (e.popularity_score, e.published), reverse=True)
 
     logger.info(f"共发现 {len(all_entries)} 条新条目")
+
+    # 只推送前20条最重要的文章
+    MAX_DAILY_ENTRIES = 20
+    if len(all_entries) > MAX_DAILY_ENTRIES:
+        logger.info(f"筛选前 {MAX_DAILY_ENTRIES} 条最重要的文章")
+        all_entries = all_entries[:MAX_DAILY_ENTRIES]
+
+    # 打印热度评分（调试用）
+    if all_entries:
+        logger.info("热度排名前5:")
+        for i, entry in enumerate(all_entries[:5], 1):
+            emoji, level = get_importance_level(entry.popularity_score)
+            logger.info(f"  {i}. {emoji}{level} [{entry.source}] {entry.title[:50]}... (评分: {entry.popularity_score:.1f})")
+
+    # 为高分文章生成智能摘要
+    if config.smart_summary_enabled and DEEPSEEK_API_KEY:
+        logger.info("开始为必读级文章生成智能摘要...")
+        smart_summary_count = 0
+
+        for entry in all_entries:
+            if entry.popularity_score >= config.smart_summary_score_threshold:
+                logger.info(f"  抓取正文: {entry.title[:40]}...")
+
+                # 抓取文章全文
+                content = fetch_article_content(
+                    entry.link,
+                    max_length=config.smart_summary_max_content_length,
+                    timeout=config.http_timeout
+                )
+
+                if content:
+                    # 生成智能摘要
+                    logger.info(f"  生成摘要: {entry.title[:40]}...")
+                    summary = generate_smart_summary(entry.title, content)
+
+                    if summary:
+                        entry.smart_summary = summary
+                        smart_summary_count += 1
+                        logger.info(f"  ✓ 摘要完成: {summary.get('core_point', '')[:30]}...")
+                    else:
+                        logger.warning(f"  ✗ 摘要生成失败，使用RSS原摘要")
+                else:
+                    logger.warning(f"  ✗ 正文抓取失败，使用RSS原摘要")
+
+                # API调用间隔
+                time.sleep(1.0)
+
+        logger.info(f"智能摘要完成: {smart_summary_count}/{len([e for e in all_entries if e.popularity_score >= config.smart_summary_score_threshold])} 篇")
+    elif config.smart_summary_enabled and not DEEPSEEK_API_KEY:
+        logger.warning("智能摘要已启用但 DEEPSEEK_API_KEY 未设置，跳过智能摘要")
 
     # 发送
     newly_sent = send_entries(

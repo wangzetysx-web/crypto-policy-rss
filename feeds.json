@@ -77,6 +77,21 @@
       "tags": ["regulation", "us", "sec"],
       "enabled": true,
       "note": "监管动态"
+    },
+    {
+      "name": "IOHK-Blog",
+      "full_name": "IOHK Official Blog",
+      "url": "https://iohk.io/en/blog/posts/page-1/index.xml",
+      "tags": ["cardano", "ada", "official"],
+      "enabled": false,
+      "note": "403 Forbidden - 2026-01-30 禁用"
+    },
+    {
+      "name": "AdaPulse",
+      "full_name": "AdaPulse News",
+      "url": "https://adapulse.io/feed/",
+      "tags": ["cardano", "ada", "news"],
+      "enabled": true
     }
   ]
 }

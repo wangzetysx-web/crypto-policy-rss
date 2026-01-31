@@ -40,6 +40,8 @@ env:
   # 可选：翻译 API
   TRANSLATE_API: ${{ secrets.TRANSLATE_API }}
   DEEPL_API_KEY: ${{ secrets.DEEPL_API_KEY }}
+  # 智能摘要 API
+  DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
 jobs:
   fetch-and-send:
@@ -61,13 +63,8 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: 下载状态文件
-        uses: actions/cache@v4
-        with:
-          path: state.json
-          key: rss-state-${{ github.run_id }}
-          restore-keys: |
-            rss-state-
+      # 注意：state.json 已提交到仓库，checkout 时自动获取最新版本
+      # 不再使用 cache，避免恢复旧状态覆盖仓库中的最新状态
 
       - name: 运行 RSS 聚合器
         id: run_script

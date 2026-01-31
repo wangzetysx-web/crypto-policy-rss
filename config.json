@@ -50,7 +50,7 @@
     ]
   },
   "settings": {
-    "http_timeout_seconds": 30,
+    "http_timeout_seconds": 60,
     "max_entries_per_feed": 10,
     "state_retention_days": 7,
     "max_retries": 3,
@@ -63,5 +63,10 @@
     "enabled": false,
     "include_tags": [],
     "exclude_tags": []
+  },
+  "smart_summary": {
+    "enabled": true,
+    "score_threshold": 70,
+    "max_content_length": 4000
   }
 }
