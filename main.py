@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 from functools import wraps
 from typing import Any, Callable, Optional
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 import feedparser
 import requests
@@ -32,10 +33,12 @@ BASE_DIR = Path(__file__).parent
 FEEDS_FILE = BASE_DIR / "feeds.json"
 CONFIG_FILE = BASE_DIR / "config.json"
 STATE_FILE = BASE_DIR / "state.json"
+LAST_SEND_FILE = BASE_DIR / "last_send.json"
 
 # 环境变量
 WECOM_WEBHOOK_URL = os.getenv("WECOM_WEBHOOK_URL", "")  # 企业微信 Webhook
 DRY_RUN = os.getenv("DRY_RUN", "").lower() in ("1", "true", "yes")
+RESEND = os.getenv("RESEND", "").lower() in ("1", "true", "yes")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # DeepSeek API 密钥
 
@@ -204,41 +207,86 @@ def translate_text(text: str) -> str:
     return result
 
 
+def translate_with_deepseek(text: str, timeout: int = 30) -> Optional[str]:
+    """使用 DeepSeek 翻译英文到中文"""
+    if not DEEPSEEK_API_KEY or not text:
+        return None
+    try:
+        client = OpenAI(
+            api_key=DEEPSEEK_API_KEY,
+            base_url="https://api.deepseek.com",
+            timeout=timeout
+        )
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "你是翻译助手，将英文翻译成简洁的中文。只返回翻译结果，不要解释。"},
+                {"role": "user", "content": text}
+            ],
+            temperature=0.1,
+            max_tokens=200,
+        )
+        result = response.choices[0].message.content.strip()
+        logger.debug(f"DeepSeek 翻译成功: {text[:30]}... -> {result[:30]}...")
+        return result
+    except Exception as e:
+        logger.debug(f"DeepSeek 翻译失败: {e}")
+        return None
+
+
 def translate_to_chinese(text: str) -> str:
     """
-    将英文文本翻译成中文
-    使用 translators 库（支持多个翻译引擎自动切换）
+    将非中文文本翻译成中文
+    优先使用 DeepSeek，失败则回退到 translators 库（支持多个翻译引擎自动切换）
     """
     if not text or not text.strip():
         return ""
 
-    # 检查是否需要翻译：只有英文字母占比足够高才翻译
-    # 统计英文字母数量（不含数字、空格、标点）
-    english_chars = len(re.findall(r'[a-zA-Z]', text))
-    total_chars = len(text.strip())
+    # 检查是否需要翻译：如果中文字符占比高，说明已是中文，不翻译
+    # 统计中文字符数量
+    chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
+    total_chars = len(re.sub(r'[\s\d\W]', '', text))  # 去除空格、数字、标点后的字符数
     if total_chars == 0:
         return text
-    # 英文字母占比低于40%，说明已是中文为主，不翻译
-    if english_chars / total_chars < 0.4:
+    # 中文字符占比高于50%，说明已是中文为主，不翻译
+    if chinese_chars / total_chars > 0.5:
         return text
 
     # 截断过长文本
     if len(text) > 500:
         text = text[:500]
 
-    # 尝试多个翻译引擎
+    # 优先使用 DeepSeek 翻译
+    if DEEPSEEK_API_KEY:
+        result = translate_with_deepseek(text)
+        if result:
+            return result
+        logger.debug("DeepSeek 翻译失败，回退到免费引擎")
+
+    # 尝试多个翻译引擎（自动检测源语言）
     engines = ['bing', 'google', 'alibaba', 'baidu']
+    translate_timeout = 30  # 单个翻译引擎超时时间（秒）
+
+    def _translate_with_engine(engine: str, text: str) -> Optional[str]:
+        """内部函数：使用指定引擎翻译"""
+        return ts.translate_text(
+            text,
+            translator=engine,
+            from_language='auto',
+            to_language='zh'
+        )
 
     for engine in engines:
         try:
-            translated = ts.translate_text(
-                text,
-                translator=engine,
-                from_language='en',
-                to_language='zh'
-            )
+            # 使用线程池实现超时控制
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_translate_with_engine, engine, text)
+                translated = future.result(timeout=translate_timeout)
             if translated and translated != text:
                 return translated
+        except FuturesTimeoutError:
+            logger.debug(f"{engine} 翻译超时 ({translate_timeout}s)")
+            continue
         except Exception as e:
             logger.debug(f"{engine} 翻译失败: {e}")
             continue
@@ -338,30 +386,31 @@ def load_config() -> AppConfig:
     else:
         data = {}
 
-        keywords = data.get("keywords", {})
-        config.keywords_allow = keywords.get("allow", [])
-        config.keywords_deny = keywords.get("deny", [])
+    # 从 data 加载配置（无论是从文件读取还是空字典）
+    keywords = data.get("keywords", {})
+    config.keywords_allow = keywords.get("allow", [])
+    config.keywords_deny = keywords.get("deny", [])
 
-        settings = data.get("settings", {})
-        config.http_timeout = settings.get("http_timeout_seconds", 30)
-        config.max_entries_per_feed = settings.get("max_entries_per_feed", 50)
-        config.state_retention_days = settings.get("state_retention_days", 30)
-        config.max_retries = settings.get("max_retries", 3)
-        config.retry_backoff_base = settings.get("retry_backoff_base", 2)
-        config.message_batch_size = settings.get("message_batch_size", 5)
-        config.message_delay = settings.get("message_delay_seconds", 1.0)
-        config.summary_max_length = settings.get("summary_max_length", 200)
+    settings = data.get("settings", {})
+    config.http_timeout = settings.get("http_timeout_seconds", 30)
+    config.max_entries_per_feed = settings.get("max_entries_per_feed", 50)
+    config.state_retention_days = settings.get("state_retention_days", 30)
+    config.max_retries = settings.get("max_retries", 3)
+    config.retry_backoff_base = settings.get("retry_backoff_base", 2)
+    config.message_batch_size = settings.get("message_batch_size", 5)
+    config.message_delay = settings.get("message_delay_seconds", 1.0)
+    config.summary_max_length = settings.get("summary_max_length", 200)
 
-        tags_filter = data.get("tags_filter", {})
-        config.tags_filter_enabled = tags_filter.get("enabled", False)
-        config.tags_include = tags_filter.get("include_tags", [])
-        config.tags_exclude = tags_filter.get("exclude_tags", [])
+    tags_filter = data.get("tags_filter", {})
+    config.tags_filter_enabled = tags_filter.get("enabled", False)
+    config.tags_include = tags_filter.get("include_tags", [])
+    config.tags_exclude = tags_filter.get("exclude_tags", [])
 
-        # 智能摘要配置
-        smart_summary = data.get("smart_summary", {})
-        config.smart_summary_enabled = smart_summary.get("enabled", True)
-        config.smart_summary_score_threshold = smart_summary.get("score_threshold", 70)
-        config.smart_summary_max_content_length = smart_summary.get("max_content_length", 4000)
+    # 智能摘要配置
+    smart_summary = data.get("smart_summary", {})
+    config.smart_summary_enabled = smart_summary.get("enabled", True)
+    config.smart_summary_score_threshold = smart_summary.get("score_threshold", 70)
+    config.smart_summary_max_content_length = smart_summary.get("max_content_length", 4000)
 
     # 环境变量覆盖（带类型转换错误处理）
     def safe_int_env(name: str, default: int) -> int:
@@ -622,7 +671,8 @@ def generate_smart_summary(title: str, content: str) -> Optional[dict]:
     try:
         client = OpenAI(
             api_key=DEEPSEEK_API_KEY,
-            base_url="https://api.deepseek.com"
+            base_url="https://api.deepseek.com",
+            timeout=60  # 智能摘要超时60秒
         )
 
         prompt = f"""分析以下加密货币/金融新闻，提取关键信息。
@@ -1033,6 +1083,41 @@ def send_wecom_message(content: str, webhook_url: str, msg_type: str = "markdown
     return True
 
 
+def save_last_send(entries: list[FeedEntry]) -> None:
+    """保存待发送条目，用于重发"""
+    data = []
+    for e in entries:
+        entry_dict = asdict(e)
+        # datetime 需要转换为字符串
+        if isinstance(entry_dict.get('published'), datetime):
+            entry_dict['published'] = entry_dict['published'].isoformat()
+        data.append(entry_dict)
+    with open(LAST_SEND_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+    logger.info(f"已保存 {len(entries)} 条待发送条目到 {LAST_SEND_FILE}")
+
+
+def load_last_send() -> list[FeedEntry]:
+    """加载上次保存的条目"""
+    if not LAST_SEND_FILE.exists():
+        logger.warning(f"重发文件不存在: {LAST_SEND_FILE}")
+        return []
+    try:
+        with open(LAST_SEND_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        entries = []
+        for item in data:
+            # 解析 published 字段
+            if isinstance(item.get('published'), str):
+                item['published'] = date_parser.parse(item['published'])
+            entries.append(FeedEntry(**item))
+        logger.info(f"已加载 {len(entries)} 条待重发条目")
+        return entries
+    except Exception as e:
+        logger.error(f"加载重发文件失败: {e}")
+        return []
+
+
 def send_entries(
     entries: list[FeedEntry],
     batch_size: int = 5,
@@ -1120,8 +1205,26 @@ def main() -> int:
     """主函数"""
     logger.info("=" * 50)
     logger.info("加密政策 RSS 聚合器启动")
-    logger.info(f"DRY_RUN: {DRY_RUN}")
+    logger.info(f"DRY_RUN: {DRY_RUN}, RESEND: {RESEND}")
     logger.info("=" * 50)
+
+    # RESEND 模式：直接加载上次保存的条目并发送
+    if RESEND:
+        logger.info("重发模式：加载上次保存的条目")
+        all_entries = load_last_send()
+        if not all_entries:
+            logger.error("没有可重发的条目")
+            return 1
+
+        config = load_config()
+        newly_sent = send_entries(
+            all_entries,
+            batch_size=config.message_batch_size,
+            delay=config.message_delay,
+        )
+        logger.info(f"重发完成: 发送 {len(newly_sent)} 条")
+        logger.info("=" * 50)
+        return 0
 
     # 加载配置
     feeds = load_feeds()
@@ -1206,6 +1309,10 @@ def main() -> int:
         logger.info(f"智能摘要完成: {smart_summary_count}/{len([e for e in all_entries if e.popularity_score >= config.smart_summary_score_threshold])} 篇")
     elif config.smart_summary_enabled and not DEEPSEEK_API_KEY:
         logger.warning("智能摘要已启用但 DEEPSEEK_API_KEY 未设置，跳过智能摘要")
+
+    # 保存待发送条目（用于重发）
+    if all_entries:
+        save_last_send(all_entries)
 
     # 发送
     newly_sent = send_entries(
