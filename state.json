@@ -1,14 +1,5 @@
 {
   "sent_ids": {
-    "Cointelegraph:https://cointelegraph.com/news/bitcoin-price-fails-follow-gold-hits-5-3k-record-high": "2026-01-28T16:49:29.085822+00:00",
-    "NewsBTC:https://www.newsbtc.com/?p=878024": "2026-01-28T16:49:29.085822+00:00",
-    "TheBlock:https://www.theblock.co/post/387426": "2026-01-28T16:49:29.085822+00:00",
-    "U.Today:https://u.today/shiba-inu-burn-rate-slumps-99-will-price-recovery-stall": "2026-01-28T16:49:29.085822+00:00",
-    "CryptoSlate:https://cryptoslate.com/?p=516765": "2026-01-28T16:49:29.085822+00:00",
-    "Decrypt:https://decrypt.co/?p=356170": "2026-01-28T16:49:29.085822+00:00",
-    "BeInCrypto:https://beincrypto.com/?p=796470": "2026-01-28T16:49:29.085822+00:00",
-    "Cardano-Forum:forum.cardano.org-topic-152883": "2026-01-28T16:49:29.085822+00:00",
-    "SEC:9fc8227a-f00c-405c-8c48-485509609488": "2026-01-28T16:49:29.085822+00:00",
     "CoinDesk:75f89d2f-3a2e-4e64-9adb-68fdb0f280fa": "2026-01-29T14:17:25.579978+00:00",
     "NewsBTC:https://www.newsbtc.com/?p=878194": "2026-01-29T14:17:25.579978+00:00",
     "Cointelegraph:https://cointelegraph.com/news/single-bitcoin-entity-keeping-btc-price-suppressed-below-90k-analysis": "2026-01-29T14:17:25.579978+00:00",
@@ -245,7 +236,27 @@
     "U.Today:https://u.today/cardano-ada-price-analysis-for-february-3": "2026-02-04T00:08:40.590250+00:00",
     "CoinDesk:5e55773b-c135-4406-b526-f49266506a3f": "2026-02-04T00:08:40.590250+00:00",
     "CoinDesk:99909038-5813-4bf7-bb8f-9e68f5b15378": "2026-02-04T00:08:40.590250+00:00",
-    "CoinDesk:536c8249-0f0f-4b51-a652-23ab110c709b": "2026-02-04T00:08:40.590250+00:00"
+    "CoinDesk:536c8249-0f0f-4b51-a652-23ab110c709b": "2026-02-04T00:08:40.590250+00:00",
+    "TheBlock:https://www.theblock.co/post/388532": "2026-02-05T00:08:26.427726+00:00",
+    "Cointelegraph:https://cointelegraph.com/news/price-predictions-2-4-btc-eth-bnb-xrp-sol-doge-ada-bch-hype-xmr": "2026-02-05T00:08:26.427726+00:00",
+    "Cardano-Forum:forum.cardano.org-topic-152995": "2026-02-05T00:08:26.427726+00:00",
+    "Decrypt:https://decrypt.co/?p=356929": "2026-02-05T00:08:26.427726+00:00",
+    "Cointelegraph:https://cointelegraph.com/news/spot-bitcoin-etf-outflows-total-2-9b-as-btc-price-drops-to-new-2026-low": "2026-02-05T00:08:26.427726+00:00",
+    "U.Today:https://u.today/utoday-crypto-digest-ripple-invited-to-white-house-elon-musk-promises-dogecoin-to-the-moon-cardano": "2026-02-05T00:08:26.427726+00:00",
+    "Cardano-Forum:forum.cardano.org-topic-152988": "2026-02-05T00:08:26.427726+00:00",
+    "Cointelegraph:https://cointelegraph.com/news/us-treasury-bessent-wont-bail-out-bitcoin": "2026-02-05T00:08:26.427726+00:00",
+    "U.Today:https://u.today/cardano-trading-volume-surges-55-as-ada-makes-top-10-comeback-details": "2026-02-05T00:08:26.427726+00:00",
+    "Cointelegraph:https://cointelegraph.com/news/bitcoin-open-interest-falls-by-dollar55b-in-30-days-what-s-next-for-btc-price": "2026-02-05T00:08:26.427726+00:00",
+    "TheBlock:https://www.theblock.co/post/388568": "2026-02-05T00:08:26.427726+00:00",
+    "Decrypt:https://decrypt.co/?p=356964": "2026-02-05T00:08:26.427726+00:00",
+    "CoinDesk:a685cce5-5f99-4599-a7e2-ad35665b6cc2": "2026-02-05T00:08:26.427726+00:00",
+    "Cointelegraph:https://cointelegraph.com/news/cme-group-exploring-issuing-token": "2026-02-05T00:08:26.427726+00:00",
+    "TheBlock:https://www.theblock.co/post/388531": "2026-02-05T00:08:26.427726+00:00",
+    "Decrypt:https://decrypt.co/?p=356948": "2026-02-05T00:08:26.427726+00:00",
+    "Decrypt:https://decrypt.co/?p=356936": "2026-02-05T00:08:26.427726+00:00",
+    "Decrypt:https://decrypt.co/?p=356914": "2026-02-05T00:08:26.427726+00:00",
+    "SEC:7fd651bb-6b82-4591-a4d3-8169d6b5db09": "2026-02-05T00:08:26.427726+00:00",
+    "SEC:9fc8227a-f00c-405c-8c48-485509609488": "2026-02-05T00:08:26.427726+00:00"
   },
-  "last_run": "2026-02-04T00:08:40.590266+00:00"
+  "last_run": "2026-02-05T00:08:26.427745+00:00"
 }
