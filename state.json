@@ -1,25 +1,5 @@
 {
   "sent_ids": {
-    "Cointelegraph:https://cointelegraph.com/news/bitcoin-etf-inflows-coldcard-hack-bloomberg-analyst": "2026-08-07T00:06:40.873737+00:00",
-    "Cardano-Forum:forum.cardano.org-topic-156144": "2026-08-07T00:06:40.873737+00:00",
-    "TheBlock:https://www.theblock.co/post/411060": "2026-08-07T00:06:40.873737+00:00",
-    "AdaPulse:https://adapulse.io/?p=14086": "2026-08-07T00:06:40.873737+00:00",
-    "Cardano-Forum:forum.cardano.org-topic-156145": "2026-08-07T00:06:40.873737+00:00",
-    "Cardano-Forum:forum.cardano.org-topic-156142": "2026-08-07T00:06:40.873737+00:00",
-    "TheBlock:https://www.theblock.co/post/411001": "2026-08-07T00:06:40.873737+00:00",
-    "TheBlock:https://www.theblock.co/post/411065": "2026-08-07T00:06:40.873737+00:00",
-    "Decrypt:https://decrypt.co/?p=375078": "2026-08-07T00:06:40.873737+00:00",
-    "Decrypt:https://decrypt.co/?p=375062": "2026-08-07T00:06:40.873737+00:00",
-    "Cointelegraph:https://cointelegraph.com/news/crypto-pac-florida-alaska-wyoming-primary-races": "2026-08-07T00:06:40.873737+00:00",
-    "TheBlock:https://www.theblock.co/post/411049": "2026-08-07T00:06:40.873737+00:00",
-    "Cointelegraph:https://cointelegraph.com/news/us-appellate-court-mandate-sam-bankman-fried": "2026-08-07T00:06:40.873737+00:00",
-    "CoinDesk:f1792fbd-4b90-4353-b5dd-56fd30c917fb": "2026-08-07T00:06:40.873737+00:00",
-    "Decrypt:https://decrypt.co/?p=375051": "2026-08-07T00:06:40.873737+00:00",
-    "Cointelegraph:https://cointelegraph.com/news/bitcoin-miners-ai-infrastructure-deals-wall-street-reaction": "2026-08-07T00:06:40.873737+00:00",
-    "Cointelegraph:https://cointelegraph.com/markets/bitcoin-price-compresses-as-us-pmi-data-brings-new-stagflation-warning": "2026-08-07T00:06:40.873737+00:00",
-    "CryptoSlate:https://cryptoslate.com/?p=552684": "2026-08-07T00:06:40.873737+00:00",
-    "TheBlock:https://www.theblock.co/post/411023": "2026-08-07T00:06:40.873737+00:00",
-    "CoinDesk:68782b8b-413e-44a6-a715-8fe32c732e17": "2026-08-07T00:06:40.873737+00:00",
     "Decrypt:https://decrypt.co/?p=375159": "2026-08-08T00:06:35.097305+00:00",
     "U.Today:https://u.today/cardano-ada-volume-surges-116-in-24-hours-will-bullrun-be-triggered": "2026-08-08T00:06:35.097305+00:00",
     "BeInCrypto:https://beincrypto.com/?p=856009": "2026-08-08T00:06:35.097305+00:00",
@@ -161,5 +141,5 @@
     "Decrypt:https://decrypt.co/?p=375562": "2026-08-14T00:08:00.382540+00:00",
     "TheBlock:https://www.theblock.co/post/411704": "2026-08-14T00:08:00.382540+00:00"
   },
-  "last_run": "2026-08-14T00:08:00.382561+00:00"
+  "last_run": "2026-08-15T00:47:03.717130+00:00"
 }
